@@ -19,4 +19,4 @@ This project demonstrates how to generate, send, and verify OTPs for user authen
 - **Frontend**: React  
 - **Backend**: Node.js, Express  
 - **Database**: MongoDB  
-- **OTP Handling**:
+- **OTP Handling**: Nodemailer,Twilio
