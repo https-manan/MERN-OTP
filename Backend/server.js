@@ -6,7 +6,7 @@ const cors = require('cors')
 const cookieParser = require('cookie-parser');
 const dbconnection = require('./db/dbConnection');
 const bcrypt = require('bcrypt'); //Do it while saving the pass in db
-
+const register = require('./routes/registerRoute')
 
 
 
@@ -18,9 +18,11 @@ app.use(cors());
 
 
 
-app.get('/',(req,res)=>{
-    res.json('Hy there working');
-})
+//register Route
+app.post('api/v1/register',register)
+
+
+
 
 app.listen(port,()=>{
     console.log(`listening on port ${port}`)
