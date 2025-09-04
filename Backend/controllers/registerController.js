@@ -1,64 +1,68 @@
 const User = require('../models/userModel');
 const bcrypt = require('bcrypt');
 const nodeMailer = require('nodemailer');
+const twilio = require('twilio')
+
+const client = twilio(process.env.TWILIO_SID,process.env.TWILIO_TOKEN);
 
 
-function sendEmail({email,subject,message}){
+
+
+async function sendEmail({email,subject,message}){
     const transporter = nodeMailer.createTransport({
         host:process.env.SMTP_HOST,
         service:process.env.SMTP_SERVICE,
         port:process.env.SMTP_PORT,
         auth:{
             user:process.env.SMTP_MAIL,
-            pass:
-        }
-    })
-}
-
-
-function generateVerificationCode(){
-    function generateRandomNumber(){
-        const number = Math.floor(Math.random()*100000);
-        return number
+            pass:process.env.SMTP_PASSWORD,
+        },
+    });
+    const options = {
+        from:process.env.SMTP_MAIL,
+        to:email,
+        subject,
+        html:message
     }
-    const verificationCode = generateRandomNumber();
-    return verificationCode; 
+    await transporter.sendMail(options);
 }
+
+
 
 async function registerController(req, res) {
     try {
         const { name, email, password, phone ,verificactionMethod} = req.body;
-
+        
         if (!name || !email || !password || !phone || !verificactionMethod) {
             return res.status(400).send('All credentials needed');
         }
-
+        
         function phoneNoValidation(phone) {
             const phoneRegex = /^\+91\d{10}$/;
             return phoneRegex.test(phone);
         }
-
+        
         if (!phoneNoValidation(phone)) {
             return res.status(400).send('Invalid phone number format');
         }
-
+        
         const existingUser = await User.findOne({
             $or: [{ email }, { phone }]
         });
-
+        
         if (existingUser) {
             return res.status(400).send('User already exists');
         }
-
+        
         const hashedPassword = await bcrypt.hash(password, 10);
-
+        
         const userstore = await User.create({
             name,
             email,
             password: hashedPassword,
             phone
         });
-
+        
         return res.status(201).json({
             msg: 'User created successfully',
             user: {
@@ -68,12 +72,28 @@ async function registerController(req, res) {
                 phone: userstore.phone
             }
         });
+        function generateVerificationCode(){
+            function generateRandomNumber(){
+                const number = Math.floor(Math.random()*100000);
+                return number
+            }
+            const verificationCode = generateRandomNumber();
+            verificationCodeExpIn = Date.now() + 30*60*1000;
+            return verificationCode;
+        }
  
-        async function sendVerificationCode(verificactionMethod,verificationCode,email,phone) {
-            if(verificactionMethod === 'email'){
+        async function sendVerificationCode(verificationMethod,verificationCode,email,phone) {
+            if(verificationMethod === 'email'){
                 const message = generateEmailTemp(verificationCode);
-                sendEmail({email,subject:'Your verificaation code is...',message})
-            }            
+                sendEmail({email,subject:'Your verificaation code is ****',message})
+            }else if(verificationMethod === 'phone'){
+                const verificationCodeWithSpace = verificationCode.toString().split('').join(' ');
+                await client.calls.create({
+                    twiml:`<Response><Say>Your verification code is ${verificationCodeWithSpace}.Your verification code is ${verificationCodeWithSpace}</Say></Response>`,
+                    from:process.env.TWILIO_PHONE,
+                    to:phone
+                })
+            }
         }
 
         const verificationCode = await userstore.generateVerificationCode();// here we r generating the verification code and saving in DB
