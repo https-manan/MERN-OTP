@@ -37,7 +37,7 @@ function generateVerificationCode(){
 async function sendVerificationCode(verificationMethod,verificationCode,email,phone) {
     if(verificationMethod === 'email'){
         const message = generateEmailTemp(verificationCode);
-        await sendEmail({email,subject:'Your verification code is ****',message})
+        await sendEmail({email,subject:' ',message})
     }else if(verificationMethod === 'phone'){
         const verificationCodeWithSpace = verificationCode.toString().split('').join(' ');
         await client.calls.create({
@@ -99,7 +99,7 @@ async function registerController(req, res) {
         
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // Generate verification code
+       
         const { verificationCode, verificationCodeExpIn } = generateVerificationCode();
         
         const userstore = await User.create({
@@ -132,4 +132,66 @@ async function registerController(req, res) {
     }
 }
 
-module.exports = registerController;
+
+
+async function verifyOTP(){
+    const {email,phone,otp} = req.body;
+   
+    
+    const phoneNoValidation = (phone)=>{
+       const phoneRegex = /^\+91\d{10}$/;
+       phoneRegex.test(phone);
+    }
+    if(!phoneNoValidation){
+        res.status(400).send({
+            Msg:'Invalid phone number'
+        })
+    }
+    try {
+        const userAllEntries = await User.find({ //Here we will track all the entries made by the user
+            $or:[
+                {
+                    email,accountVerified:false,
+                },
+                {
+                    phone,accountVerified:false,
+                }
+            ]
+        }).sort({createdAt:-1}) //So by this the user created recently will apperar at the top
+
+       
+        if(!userAllEntries){
+            res.status(404).json({
+                success:false,
+                message:'Send an OTP.'
+            });
+            let user;
+            if(userAllEntries.length > 1){
+                user = userAllEntries[0] //so we are only assigning the value on teh 0th index else we r ignoring all 
+                await User.deleteMany({
+                    _id:{$ne : user._id},
+                    $or:[
+                        {email,accountVerified:false},
+                        {phone,accountVerified:false}
+                    ]
+                });
+            }else{
+                user = userAllEntries[0];
+            }
+            if(User.verificationCode!==Number(otp)){
+                return res.status(400).send({
+                    success:false,
+                    message:"Invalid OTP"
+                });
+            }
+        }
+        
+    } catch (error) {
+        console.log(error);
+    }
+    //2.00 continue form here
+}
+
+
+
+module.exports = registerController,verifyOTP;
