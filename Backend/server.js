@@ -19,7 +19,7 @@ app.use(cors());
 
 
 //register Route
-app.post('api/v1/register',register)
+app.use('/api/v1/register',register)
 
 
 

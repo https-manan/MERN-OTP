@@ -5,9 +5,6 @@ const twilio = require('twilio')
 
 const client = twilio(process.env.TWILIO_SID,process.env.TWILIO_TOKEN);
 
-
-
-
 async function sendEmail({email,subject,message}){
     const transporter = nodeMailer.createTransport({
         host:process.env.SMTP_HOST,
@@ -27,88 +24,31 @@ async function sendEmail({email,subject,message}){
     await transporter.sendMail(options);
 }
 
+function generateVerificationCode(){
+    function generateRandomNumber(){
+        const number = Math.floor(Math.random()*100000);
+        return number
+    }
+    const verificationCode = generateRandomNumber();
+    const verificationCodeExpIn = Date.now() + 30*60*1000;
+    return { verificationCode, verificationCodeExpIn };
+}
 
-
-async function registerController(req, res) {
-    try {
-        const { name, email, password, phone ,verificactionMethod} = req.body;
-        
-        if (!name || !email || !password || !phone || !verificactionMethod) {
-            return res.status(400).send('All credentials needed');
-        }
-        
-        function phoneNoValidation(phone) {
-            const phoneRegex = /^\+91\d{10}$/;
-            return phoneRegex.test(phone);
-        }
-        
-        if (!phoneNoValidation(phone)) {
-            return res.status(400).send('Invalid phone number format');
-        }
-        
-        const existingUser = await User.findOne({
-            $or: [{ email }, { phone }]
-        });
-        
-        if (existingUser) {
-            return res.status(400).send('User already exists');
-        }
-        
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        const userstore = await User.create({
-            name,
-            email,
-            password: hashedPassword,
-            phone
-        });
-        
-        return res.status(201).json({
-            msg: 'User created successfully',
-            user: {
-                id: userstore._id,
-                name: userstore.name,
-                email: userstore.email,
-                phone: userstore.phone
-            }
-        });
-        function generateVerificationCode(){
-            function generateRandomNumber(){
-                const number = Math.floor(Math.random()*100000);
-                return number
-            }
-            const verificationCode = generateRandomNumber();
-            verificationCodeExpIn = Date.now() + 30*60*1000;
-            return verificationCode;
-        }
- 
-        async function sendVerificationCode(verificationMethod,verificationCode,email,phone) {
-            if(verificationMethod === 'email'){
-                const message = generateEmailTemp(verificationCode);
-                sendEmail({email,subject:'Your verificaation code is ****',message})
-            }else if(verificationMethod === 'phone'){
-                const verificationCodeWithSpace = verificationCode.toString().split('').join(' ');
-                await client.calls.create({
-                    twiml:`<Response><Say>Your verification code is ${verificationCodeWithSpace}.Your verification code is ${verificationCodeWithSpace}</Say></Response>`,
-                    from:process.env.TWILIO_PHONE,
-                    to:phone
-                })
-            }
-        }
-
-        const verificationCode = await userstore.generateVerificationCode();// here we r generating the verification code and saving in DB
-        await userstore.save();
-        sendVerificationCode(verificactionMethod,verificationCode,email,phone); // In this we r sending the verification code to the user
-
-    } catch (error) {
-        console.error(error); 
-        res.status(500).send({
-            msg: 'Internal server error'
-        });
+async function sendVerificationCode(verificationMethod,verificationCode,email,phone) {
+    if(verificationMethod === 'email'){
+        const message = generateEmailTemp(verificationCode);
+        await sendEmail({email,subject:'Your verification code is ****',message})
+    }else if(verificationMethod === 'phone'){
+        const verificationCodeWithSpace = verificationCode.toString().split('').join(' ');
+        await client.calls.create({
+            twiml:`<Response><Say>Your verification code is ${verificationCodeWithSpace}.Your verification code is ${verificationCodeWithSpace}</Say></Response>`,
+            from:process.env.TWILIO_PHONE,
+            to:phone
+        })
     }
 }
 
-function generateEmailTemp(){
+function generateEmailTemp(verificationCode){
     return `<div style="font-family: Arial, sans-serif; max-width: 680px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9;">
   <h2 style="color: #4CAF50; text-align: center;">Verification Code</h2>
 
@@ -132,6 +72,64 @@ function generateEmailTemp(){
 `
 }
 
+async function registerController(req, res) {
+    try {
+        const { name, email, password, phone, verificationMethod } = req.body; // Fixed typo
+        
+        if (!name || !email || !password || !phone || !verificationMethod) {
+            return res.status(400).send('All credentials needed');
+        }
+        
+        function phoneNoValidation(phone) {
+            const phoneRegex = /^\+91\d{10}$/;
+            return phoneRegex.test(phone);
+        }
+        
+        if (!phoneNoValidation(phone)) {
+            return res.status(400).send('Invalid phone number format');
+        }
+        
+        const existingUser = await User.findOne({
+            $or: [{ email }, { phone }]
+        });
+        
+        if (existingUser) {
+            return res.status(400).send('User already exists');
+        }
+        
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Generate verification code
+        const { verificationCode, verificationCodeExpIn } = generateVerificationCode();
+        
+        const userstore = await User.create({
+            name,
+            email,
+            password: hashedPassword,
+            phone,
+            verificationCode,
+            verificationCodeExpIn
+        });
+        
+        // Send verification code
+        await sendVerificationCode(verificationMethod, verificationCode, email, phone);
+        
+        return res.status(201).json({
+            msg: 'User created successfully',
+            user: {
+                id: userstore._id,
+                name: userstore.name,
+                email: userstore.email,
+                phone: userstore.phone
+            }
+        });
 
+    } catch (error) {
+        console.error(error); 
+        res.status(500).send({
+            msg: 'Internal server error'
+        });
+    }
+}
 
 module.exports = registerController;
