@@ -2,8 +2,20 @@ const User = require('../models/userModel');
 const bcrypt = require('bcrypt');
 const nodeMailer = require('nodemailer');
 const twilio = require('twilio')
-
+const jwt = require('jsonwebtoken')
 const client = twilio(process.env.TWILIO_SID,process.env.TWILIO_TOKEN);
+const cookie = require('cookie-parser');
+
+
+async function sendToken(user, res) {
+    const token = jwt.sign({ user_id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    res.status(200).cookie("token", token, {
+        httpOnly: true, 
+        maxAge: 3600000
+    }).json({ token });
+}
+
+
 
 async function sendEmail({email,subject,message}){
     const transporter = nodeMailer.createTransport({
@@ -74,7 +86,7 @@ function generateEmailTemp(verificationCode){
 
 async function registerController(req, res) {
     try {
-        const { name, email, password, phone, verificationMethod } = req.body; // Fixed typo
+        const { name, email, password, phone, verificationMethod } = req.body; 
         
         if (!name || !email || !password || !phone || !verificationMethod) {
             return res.status(400).send('All credentials needed');
@@ -111,7 +123,7 @@ async function registerController(req, res) {
             verificationCodeExpIn
         });
         
-        // Send verification code
+
         await sendVerificationCode(verificationMethod, verificationCode, email, phone);
         
         return res.status(201).json({
@@ -133,65 +145,104 @@ async function registerController(req, res) {
 }
 
 
-
-async function verifyOTP(){
-    const {email,phone,otp} = req.body;
-   
-    
-    const phoneNoValidation = (phone)=>{
-       const phoneRegex = /^\+91\d{10}$/;
-       phoneRegex.test(phone);
-    }
-    if(!phoneNoValidation){
-        res.status(400).send({
-            Msg:'Invalid phone number'
-        })
-    }
+async function verifyOTP(req, res) {
     try {
-        const userAllEntries = await User.find({ //Here we will track all the entries made by the user
-            $or:[
-                {
-                    email,accountVerified:false,
-                },
-                {
-                    phone,accountVerified:false,
-                }
-            ]
-        }).sort({createdAt:-1}) //So by this the user created recently will apperar at the top
+        const { email, phone, otp } = req.body;//okey here we r getting the email,phone,OTP from body
 
-       
-        if(!userAllEntries){
-            res.status(404).json({
-                success:false,
-                message:'Send an OTP.'
-            });
-            let user;
-            if(userAllEntries.length > 1){
-                user = userAllEntries[0] //so we are only assigning the value on teh 0th index else we r ignoring all 
-                await User.deleteMany({
-                    _id:{$ne : user._id},
-                    $or:[
-                        {email,accountVerified:false},
-                        {phone,accountVerified:false}
-                    ]
-                });
-            }else{
-                user = userAllEntries[0];
-            }
-            if(User.verificationCode!==Number(otp)){
-                return res.status(400).send({
-                    success:false,
-                    message:"Invalid OTP"
-                });
-            }
+        const phoneNoValidation = (phone) => /^\+91\d{10}$/.test(phone);
+        if (!phoneNoValidation(phone)) {
+            return res.status(400).send({ Msg: 'Invalid phone number' });
         }
-        
+
+        const userAllEntries = await User.find({
+            $or: [
+                { email, accountVerified: false },
+                { phone, accountVerified: false }
+            ]
+        }).sort({ createdAt: -1 }); //Here we are sorting for the latest OTP
+
+        if (!userAllEntries || userAllEntries.length === 0) {
+            return res.status(404).json({ success: false, message: 'Send an OTP.' });
+        }
+
+        let user = userAllEntries[0]; //Storing only last top user and deleting all rest of the user
+
+        if (userAllEntries.length > 1) {
+            await User.deleteMany({
+                _id: { $ne: user._id },
+                $or: [{ email, accountVerified: false }, { phone, accountVerified: false }]
+            });
+        }
+
+        if (user.verificationCode !== otp) {
+            return res.status(400).send({ success: false, message: "Invalid OTP" });
+        }
+
+        if (Date.now() > user.verificationCodeExpIn) {
+            return res.status(400).send({ success: false, message: 'Code has expired.' });
+        }
+
+        user.accountVerified = true;
+        user.verificationCode = null;
+        user.verificationCodeExpIn = null;
+        await user.save();
+
+        await sendToken(user, res);
+
     } catch (error) {
-        console.log(error);
+        console.error('Internal server error ', error);
+        res.status(500).send({ msg: 'Internal server error' });
     }
-    //2.00 continue form here
+}
+
+
+async function login(req, res) {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                msg: 'Email and password are required.'
+            });
+        }
+
+        const user = await User.findOne({ email, accountVerified: true });
+
+        if (!user) {
+            return res.status(400).send({
+                success: false,
+                msg: 'User not found or not verified'
+            });
+        }
+
+        const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordMatch) {
+            return res.status(400).send({
+                success: false,
+                msg: 'Wrong password',
+            });
+        }
+        return res.status(200).json({
+            success: true,
+            msg: 'Login successful',
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email
+            }
+        });
+
+    } catch (error) {
+        console.error("Login error:", error);
+        res.status(500).send({
+            success: false,
+            msg: 'Internal server error'
+        });
+    }
 }
 
 
 
-module.exports = registerController,verifyOTP;
+module.exports = { registerController, verifyOTP ,login };

@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const dbconnection = require('./db/dbConnection');
 const bcrypt = require('bcrypt'); //Do it while saving the pass in db
 const register = require('./routes/registerRoute')
+const verify = require('./routes/verifyRoute')
 
 
 
@@ -20,7 +21,7 @@ app.use(cors());
 
 //register Route
 app.use('/api/v1/register',register)
-
+app.use('/api/v1/verify',verify)
 
 
 
