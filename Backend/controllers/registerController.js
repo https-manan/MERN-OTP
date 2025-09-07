@@ -243,6 +243,26 @@ async function login(req, res) {
     }
 }
 
+async function logout(req, res) {
+    try {
+        const token = req.cookies.token;
+        if (!token) {
+            return res.status(401).json({ success: false, msg: "No token found" });
+        }
+
+        try {
+            jwt.verify(token, process.env.JWT_SECRET); 
+        } catch (err) {
+            return res.status(401).json({ success: false, msg: "Invalid or expired token" });
+        }
+
+        res.clearCookie("token");
+        res.status(200).json({ success: true, msg: "Logged out successfully" });
+    } catch (error) {
+        console.error("Logout error:", error);
+        res.status(500).json({ success: false, msg: "Server error" });
+    }
+}
 
 
-module.exports = { registerController, verifyOTP ,login };
+module.exports = { registerController, verifyOTP ,login ,logout};
